@@ -34,14 +34,11 @@
 //    plain text files as indicated in command line
 
 #include <array>
-#include <cassert>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
-
-namespace fs = std::filesystem;
 
 class
 InputParser {
@@ -182,7 +179,6 @@ DataSet {
             dsi.name = "";
             dsi.seq = "";
             std::string line = "";
-            int c = 0;
             for(auto e = this->raw.begin(); e != this->raw.end(); e++) {
                 line = *e;
                 if(line[0] == '>') {
@@ -246,7 +242,6 @@ main(int argc, char **argv){
         i++;
     }
 
-    int c = 0;
     std::string ts;
     for (auto i = fns.begin(); i !=fns.end(); i++) {
         ts = *i;
