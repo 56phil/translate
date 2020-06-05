@@ -1,19 +1,47 @@
-#include <algorithm>
+// FILE:        translate.cpp
+// STANDARD:    C++17
+// AUTHOR:      Phil Huffman
+//
+// PURPOSE:
+// This is a python program that reads a text file and writes a text file with
+// a name derived from the name of the input file (e.g. d.txt -> d.OUT.txt).
+// It reads the first data set, determines where the protein sequence is in the
+// count. Then, in every subsequent data set, the program will only return data
+// that is related to that count. This will replace data that does that does
+// not precisely align with sequence positions from the first data set (whether
+// they are a dash or a letter). The output file will have the same number of
+// data sets as the input file. The proteins sequence of the first data set is
+// unchanged. In the remaining data sets, each character of the sequence is
+// unchanged if the corresponding character of the first sequence is a letter.
+// Otherwise, it is replaced with the specified replacement character.
+// If none is specified, the default '+' will be used.
+//
+// OVERALL METHOD:
+// The general tasks are:
+// 1. Parse command line building a vector of file names
+// 2. Instantiate a DataSet object
+// 3. Repeat step 2 until all file names have been used.
+//
+// CLASSES:
+//  InputParser
+//
+//  DataSet
+//
+// FUNCTIONS:
+//  None.
+//
+// DATA FILES:
+//    plain text files as indicated in command line
+
 #include <array>
-#include <cctype>
-#include <filesystem>
+#include <cassert>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <typeinfo>
 #include <vector>
 
 namespace fs = std::filesystem;
-
-typedef std::array<std::string, 2> dataSet;
-typedef std::vector<dataSet> bunch;
 
 class
 InputParser {
@@ -42,109 +70,145 @@ InputParser {
         std::vector <std::string> tokens;
 };
 
-std::string
-getName(std::string l) {
-    std::size_t start = l.find('[') + 1;
-    std::size_t len = l.find(']') - start;
-    return ">" + l.substr(start, len);
-}
+class
+DataSet {
+    public:
 
-std::string
-cleanupSeq(std::string l) {
-    std::string s = "";
-    for(auto i = l.begin(); i != l.end(); i++) {
-        if(*i != '\n') s += *i;
-    }
-    return s;
-}
+        DataSet(const std::string fname, const std::string out_id,
+                char sub_char, int line_length) {
 
-void
-writeResults(bunch &data, const int ll, std::string ofn) {
-    long l;
-    std::string ts;
-    std::ofstream out;
-    out.open(ofn);
-    if(out.is_open()) {
-        dataSet tempArray;
-        for(auto i = data.begin(); i != data.end(); i++) {
-            tempArray = *i;
-            out << tempArray[0] << std::endl;
-            ts = tempArray[1];
-            for(long b = 0; b < ts.size(); b += ll) {
-                ts = tempArray[1];
-                l = b + ll <= ts.size() ? ll : ts.size() - b;
-                out << ts.substr(b, l) << std::endl;
+            this->ifn = fname;
+            this->ofn = fname;
+            this->oid = out_id + ".";
+            this->sc = sub_char;
+            this->ll = line_length;
+
+            make_ofn();
+            read_file();
+            parse_raw();
+            get_results();
+        }
+
+        void write_to_file() {
+            long l;     // length of output line
+            long b;     // start of output line in sequence
+            DataSet_item dsi;   // current dataset item
+            std::ofstream out;
+            out.open(this->ofn);
+            if(out.is_open()) {
+                for(auto i = data.begin(); i != data.end(); i++) {
+                    dsi = *i;
+                    out << dsi.name << std::endl;
+                    for(b = 0; b < dsi.seq.size(); b += this->ll) {
+                        l = this->ll;
+                        while(b + l > dsi.seq.size()) {
+                            l--;
+                        }
+                        out << dsi.seq.substr(b, l) << std::endl;
+                    }
+                }
+                std::cout << this->data.size() << " data set items written to "
+                    << this->ofn << std::endl;
+            } else {
+                std::cerr << ofn << " was not opened." << std::endl;
+            }
+            out.close();
+        }
+
+    private:
+        struct
+            DataSet_item {
+                std::string name;
+                std::string seq;
+            };
+
+        int ll;                             // line length
+        char sc;                            // substitution char
+        std::string oid;                    // makes output file name different
+        std::string ifn;                    // input file name
+        std::string ofn;                    // output file name
+        std::vector<DataSet_item> data;     // where the action is
+        std::vector<std::string> raw;       // raw data from input file
+
+        void read_file() {
+            std::ifstream file(this->ifn);
+            std::string str;
+            while (std::getline(file, str)) {
+                this->raw.emplace_back(str);
             }
         }
-    } else {
-        std::cerr << ofn << " was not opened." << std::endl;
-    }
-    out.close();
-}
 
-std::string
-makeOFN(std::string fn, std::string id) {
-    size_t pos = fn.rfind('.');
-    if(pos == std::string::npos) pos = id.size();
-    return fn.insert(pos + 1, id);
-}
-
-void
-makeResults(bunch &data, char &sc) {
-    for(long n = 1; n < data.size(); n++) {
-        for(long i = 0; i < data[n][1].size(); i++) {
-            if(!isalpha(data[0][1][i])) {
-                data[n][1][i] = sc;
+        void get_results() {
+            DataSet_item dsi;
+            dsi = this->data[0];
+            std::string seq_0 = dsi.seq;
+            for(long n = 1; n < data.size(); n++) {
+                dsi = this->data[n];
+                for(long i = 0; i < dsi.seq.size(); i++) {
+                    if(!isalpha(seq_0[i])) {
+                        dsi.seq[i] = this->sc;
+                    }
+                }
+                data[n] = dsi;
             }
         }
-    }
-}
 
-bunch
-parseRawData(std::vector<std::string> rawData) {
-    bunch pd;
-    dataSet tempArray;
-    tempArray[0] = "";
-    tempArray[1] = "";
-    std::string line = "";
-    for(auto e = rawData.begin(); e != rawData.end(); e++) {
-        line = *e;
-        if(line[0] == '>') {
-            if(tempArray[0][0] == '>') pd.emplace_back(tempArray);
-            tempArray[0] = getName(line);
-            tempArray[1] = "";
-        } else {
-            tempArray[1] += cleanupSeq(line);
+        std::string get_name(std::string s) {
+            int start = s.find('[');
+            int end = s.find(']');
+            int len = end - start;
+            return ">" + s.substr(start + 1, len - 1);
         }
-    }
-    if(tempArray[0][0] == '>') pd.emplace_back(tempArray);
-    return pd;
-}
 
-void
-doFile(const std::string fn ,const int ll, std::string id,
-        char sc) {
-    std::vector <std::string> contents;
-    std::string line = "";
-    std::ifstream fin;
-    fin.open(fn);
-    while (fin) {
-        getline(fin, line);
-        contents.emplace_back(line);
-    }
-    fin.close();
-    id += ".";
+        void cleanup_seq(std::string &s) {
+            long i = 0;
+            while(i < s.size()) {
+                if(s[i] == '\n') {
+                    s.erase(i, 1);
+                } else {
+                    i++;
+                }
+            }
+        }
 
-    bunch parsedRawData = parseRawData(contents);
-    makeResults(parsedRawData, sc);
-    writeResults(parsedRawData, ll, makeOFN(fn, id));
-}
+        void make_ofn() {
+            size_t pos = this->ofn.rfind('.');
+            pos = (pos == std::string::npos) ? this->ofn.size(): pos + 1;
+            this->ofn.insert(pos, this->oid);
+        }
+
+        void parse_raw() {
+            DataSet_item dsi;
+            dsi.name = "";
+            dsi.seq = "";
+            std::string line = "";
+            int c = 0;
+            for(auto e = this->raw.begin(); e != this->raw.end(); e++) {
+                line = *e;
+                if(line[0] == '>') {
+                    augment_data(dsi);
+                    dsi.name = get_name(line);
+                    dsi.seq = "";
+                } else {
+                    dsi.seq += line;
+                }
+            }
+            augment_data(dsi);
+        }
+
+        void augment_data(DataSet_item &dsi) {
+            cleanup_seq(dsi.seq);
+            if(!dsi.name.empty() && !dsi.seq.empty()) {
+                this->data.emplace_back(dsi);
+            }
+        }
+};
 
 int
 main(int argc, char **argv){
     InputParser input(argc, argv);
     if(input.cmdOptionExists("-h")){
-        std::cout << "Usage: translate -s+ -l60 -oOUT <file name(s)>\n"
+        std::cout << "Usage: translate -s + -l 60 -o OUT <at least one file name>\n"
             << "\ts:\tSubstitution char, default = '+'\n"
             << "\t\tOnly first character will be used.\n"
             << "\tl:\tMax output length, default = 60\n"
@@ -159,10 +223,10 @@ main(int argc, char **argv){
         lineLen = std::stoi(lineLength);
     }
 
-    std::string outID = "OUT";
-    const std::string &ooutID = input.getCmdOption("-o");
-    if(ooutID.size() > 0) {
-        outID = ooutID;
+    std::string out_id = "OUT";
+    const std::string &oout_id = input.getCmdOption("-o");
+    if(oout_id.size() > 0) {
+        out_id = oout_id;
     }
 
     char sc = '+';
@@ -182,8 +246,12 @@ main(int argc, char **argv){
         i++;
     }
 
-    for (auto i =fns.begin(); i!=fns.end(); ++i) {
-        doFile(*i, lineLen, outID, sc);
+    int c = 0;
+    std::string ts;
+    for (auto i = fns.begin(); i !=fns.end(); i++) {
+        ts = *i;
+        DataSet data(ts, out_id, sc, lineLen);
+        data.write_to_file();
     }
 
     return 0;
